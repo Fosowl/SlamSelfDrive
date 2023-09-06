@@ -8,7 +8,7 @@ from sources.render import Renderer3D
 from sources.lines import Line
 from setup import Setup
 
-video = cv.VideoCapture("./videos/test_nyc.mp4")
+video = cv.VideoCapture("./videos/forest_road.mp4")
 frame_delay = int(1000 / video.get(cv.CAP_PROP_FPS))
 width = video.get(cv.CAP_PROP_FRAME_WIDTH)
 height = video.get(cv.CAP_PROP_FRAME_HEIGHT)
@@ -30,9 +30,10 @@ while video.isOpened():
     #line.overlay(frame)
     #detector.detect_objects(frame)
     #detector.draw_detection_box(frame)
-    slam.view_points(frame)
+    points_pair = slam.vision.find_matching_points(frame)
+    slam.vision.view_interest_points(frame)
+    points = slam.triangulation(points_pair)
     # draw points in 3D space
-    points = None
     renderer.render3dSpace(points)
     renderer.render()
     cv.imshow("Driving", frame)

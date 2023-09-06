@@ -3,8 +3,8 @@ import cv2 as cv
 import numpy as np
 import pygame
 from pygame.locals import *
-from OpenGL.GL import *
 from OpenGL.GLU import *
+from OpenGL.GL import *
 
 class Renderer3D:
     def __init__(self) -> None:
@@ -18,11 +18,11 @@ class Renderer3D:
         glTranslatef(0.0, 0.0, -5)
     
     def draw_point(self, point, color=(0.0, 1.0, 0.0)):
-        gColor3f(color)
-        glVertex3f(point)
-    
+        glColor3f(color[0], color[1], color[2])
+        glVertex3f(point[0], point[1], point[2])
+
     def draw_lines(self, start, end, color=(0.0, 1.0, 0.0)):
-        gColor3f(color)
+        glColor3f(color)
         glVertex3f(start)
         glVertex3f(end)
 
