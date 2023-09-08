@@ -61,7 +61,7 @@ class Vision:
         self.last_frame = None
         # camera class with essential matrix and camera matrix
         self.camera = Camera(video_dim)
-        self.frame_delay = 3
+        self.frame_delay = 0
     
     # distance between two points
     def distance_between_points(self, pt1, pt2):
@@ -72,12 +72,12 @@ class Vision:
     def find_matching_points(self, frame):
         assert frame is not None
         match = np.mean(frame, axis=2).astype(np.uint8)
-        feats = cv.goodFeaturesToTrack(match, maxCorners=3000, qualityLevel=0.01, minDistance=3)
+        feats = cv.goodFeaturesToTrack(match, maxCorners=1000, qualityLevel=0.01, minDistance=3)
         kps = [cv.KeyPoint(x=f[0][0], y=f[0][1], size=20) for f in feats]
         kps, des = self.orb.compute(frame, kps)
 
         self.frame_delay += 1
-        if self.frame_delay >= 3:
+        if self.frame_delay > 0:
             self.last_frame = {'kps': kps, 'des': des}
             self.frame_delay = 0
         matches = self.matcher.match(des, self.last_frame['des'])
@@ -118,6 +118,7 @@ class Slam:
         self.past_matrices['E'] = None
         # pose is a matrix R and a vector t
         self.past_matrices['pose'] = None
+        self.speeds_history = [[0, 0, 0]]
     
     def get_camera_intrinsics(self):
         return self.vision.camera.get_camera_intrinsics()
@@ -126,6 +127,22 @@ class Slam:
     def get_camera_pose(self, points):
         assert points is not None
         return self.vision.get_camera_pose(points)
+    
+    # get speed of camera
+    def get_speed(self):
+        if self.past_matrices['E'] is None or self.past_matrices['pose'] is None:
+            return [0, 0, 0]
+        pose = self.past_matrices['pose']
+        t = pose['t']
+        self.speeds_history.append([t[0], t[1], t[2]])
+        x_sum = sum([x[0] for x in self.speeds_history])
+        y_sum = sum([x[1] for x in self.speeds_history])
+        z_sum = sum([x[2] for x in self.speeds_history])
+        x_avg = x_sum / len(self.speeds_history)
+        y_avg = y_sum / len(self.speeds_history)
+        z_avg = z_sum / len(self.speeds_history)
+        return (round(x_avg[0], 2), round(y_avg[0], 2), round(z_avg[0], 2))
+
     
     # get 3D points in space from 2D points in images
     def triangulation(self, points):

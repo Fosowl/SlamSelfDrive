@@ -11,7 +11,7 @@ from setup import Setup
 import random
 import time
 
-video = cv.VideoCapture("./videos/forest.mp4")
+video = cv.VideoCapture("./videos/test_nyc.mp4")
 frame_delay = int(1000 / video.get(cv.CAP_PROP_FPS))
 width = int(video.get(cv.CAP_PROP_FRAME_WIDTH))
 height = int(video.get(cv.CAP_PROP_FRAME_HEIGHT))
@@ -26,9 +26,6 @@ renderer = Renderer3D()
 camera_matrix = slam.get_camera_intrinsics()
 
 points3d = None
-x_speed = 0
-y_speed = 0
-z_speed = 0
 while video.isOpened():
     ret, frame = video.read()
     if not ret:
@@ -42,16 +39,15 @@ while video.isOpened():
     if renderer.is_freeze() == False:
         matches = slam.match_frame(frame, visualize=True)
     E, cam_pose = slam.get_camera_pose(matches)
-    x_speed += cam_pose['t'][0]
-    y_speed += cam_pose['t'][1]
-    z_speed += cam_pose['t'][2]
+    x_speed, y_speed, z_speed = slam.get_speed()
     points3d = slam.triangulation(matches)
     if points3d is None:
         continue
     #print("random points :", points3d[random.randint(0, len(points3d))])
-    renderer.handle_events()
+    renderer.ready()
+    #renderer.draw_plane()
     renderer.render3dSpace(points3d, cam_pose, camera_matrix)
-    renderer.render()
+    renderer.render(10)
     cv.imshow("Driving", frame)
 video.release()
 cv.destroyAllWindows()
