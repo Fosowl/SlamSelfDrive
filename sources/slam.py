@@ -1,5 +1,10 @@
+"""
+ implementation of Simultaneous Localization and Mapping (SLAM)
+"""
+
 import numpy as np
 import cv2 as cv
+import copy
 
 # matrices terminology
 # Camera matrix (K) - encodes the intrinsic parameters of a camera, including the focal length and principal point, relates points in the world to points in the images
@@ -25,38 +30,47 @@ class Camera:
         self.pose['R'] = np.eye(3)
         self.pose['t'] = np.zeros((3, 1))
 
-    def estimate_pose(self, twin_points):
+    # estimate camera pose and return E and pose (R, t)
+    def estimate_pose(self, maches_pair):
+        assert maches_pair is not None
         c1 = []
         c2 = []
-        for pt1, pt2 in twin_points:
+        for pt1, pt2 in maches_pair:
             c1.append(pt1)
             c2.append(pt2)
         c1 = np.array(c1)
         c2 = np.array(c2)
         focal = 1.0
         pp = (self.cx, self.cy) # principal point
-        self.E, _ = cv.findEssentialMat(c1, c2, focal, pp, cv.RANSAC, 0.999, 1)
+        self.E, _ = cv.findEssentialMat(c1, c2, focal, pp, cv.RANSAC, 0.99, 1)
         _, R, t, _ = cv.recoverPose(self.E, c1, c2, self.K, pp)
         self.pose['R'] = R
         self.pose['t'] = t
         return self.E, self.pose
+    
+    def get_camera_intrinsics(self):
+        return self.K
 
 class Vision:
     def __init__(self, video_dim) -> None:
         self.orb = cv.ORB_create()
         self.matcher = cv.BFMatcher(cv.NORM_HAMMING, crossCheck=True)
         # pair of points from current and previous frame
-        self.twin_points = None
+        self.maches_pair = None
         # last frame used to find matching points
         self.last_frame = None
         # camera class with essential matrix and camera matrix
         self.camera = Camera(video_dim)
         self.frame_delay = 3
     
+    # distance between two points
     def distance_between_points(self, pt1, pt2):
+        assert pt1 is not None and pt2 is not None
         return np.sqrt((pt1[0] - pt2[0])**2 + (pt1[1] - pt2[1])**2)
     
+    # find matching points between current and previous frame
     def find_matching_points(self, frame):
+        assert frame is not None
         match = np.mean(frame, axis=2).astype(np.uint8)
         feats = cv.goodFeaturesToTrack(match, maxCorners=3000, qualityLevel=0.01, minDistance=3)
         kps = [cv.KeyPoint(x=f[0][0], y=f[0][1], size=20) for f in feats]
@@ -67,19 +81,20 @@ class Vision:
             self.last_frame = {'kps': kps, 'des': des}
             self.frame_delay = 0
         matches = self.matcher.match(des, self.last_frame['des'])
-        self.twin_points = []
+        self.maches_pair = []
         for m in matches:
             kp1 = kps[m.queryIdx].pt
             kp2 = self.last_frame['kps'][m.trainIdx].pt
             if self.distance_between_points(kp1, kp2) < 50:
-                self.twin_points.append((kp1, kp2))
-        return self.twin_points
+                self.maches_pair.append((kp1, kp2))
+        return self.maches_pair
 
+    # draw points and lines between current and previous frame
     def view_interest_points(self, frame):
-        if self.twin_points is None:
+        if self.maches_pair is None:
             print("no matches")
             return
-        for pt1, pt2 in self.twin_points:
+        for pt1, pt2 in self.maches_pair:
             # from current frame
             cv.circle(frame, (int(pt1[0]), int(pt1[1])), color=(57,204,172), radius=3)
             # from previous frame
@@ -87,10 +102,11 @@ class Vision:
             # draw line
             cv.line(frame, (int(pt1[0]), int(pt1[1])), (int(pt2[0]), int(pt2[1])), color=(38, 207, 63), thickness=1)
     
-    def get_camera_pose(self):
-        if self.twin_points is None:
+    # return camera pose
+    def get_camera_pose(self, points):
+        if points is None:
             return None, None
-        return self.camera.estimate_pose(self.twin_points)
+        return self.camera.estimate_pose(points)
     
     def get_matches(self):
         return self.sorted_match
@@ -100,39 +116,46 @@ class Slam:
         self.vision = Vision((width, height))
         self.past_matrices = dict()
         self.past_matrices['E'] = None
-        # pose is a matrix and a vector
+        # pose is a matrix R and a vector t
         self.past_matrices['pose'] = None
     
+    def get_camera_intrinsics(self):
+        return self.vision.camera.get_camera_intrinsics()
+    
+    # get camera pose
+    def get_camera_pose(self, points):
+        assert points is not None
+        return self.vision.get_camera_pose(points)
+    
+    # get 3D points in space from 2D points in images
     def triangulation(self, points):
-        E, pose = self.vision.get_camera_pose()
+        assert points is not None
+        E, pose = self.vision.get_camera_pose(points)
+        K = self.vision.camera.get_camera_intrinsics()
         if E is None or pose is None:
-            return
+            return None
         if self.past_matrices['E'] is None or self.past_matrices['pose'] is None:
-            self.past_matrices['E'] = E
-            self.past_matrices['pose'] = pose
-            return
-        E_diff = self.past_matrices['E'] - E
-        print("E_diff : ", E_diff)
-        projection_matrix = np.hstack((pose['R'], pose['t']))
-        past_projection_matrix = np.hstack((self.past_matrices['pose']['R'], self.past_matrices['pose']['t']))
-        projPoints1 = []
-        projPoints2 = []
-        # Convert matching keypoints into the required format
-        for kp1, kp2 in points:
-            projPoints1.append([kp1[0], kp1[1]])
-            projPoints2.append([kp2[0], kp2[1]])
-        # Convert to NumPy arrays
-        projPoints1 = np.array(projPoints1).T  # Shape: (2, N)
-        projPoints2 = np.array(projPoints2).T  
-        points4D = cv.triangulatePoints(past_projection_matrix, projection_matrix, projPoints1, projPoints2)
+            self.past_matrices['E'] = copy.deepcopy(E)
+            self.past_matrices['pose'] = copy.deepcopy(pose) 
+            return None
+        P1 = np.dot(K, np.hstack((self.past_matrices['pose']['R'], self.past_matrices['pose']['t'])))
+        P2 = np.dot(K, np.hstack((pose['R'], pose['t'])))
+        frame_points1 = []
+        frame_points2 = []
+        for pt1, pt2 in points:
+            frame_points1.append([pt1[0], pt1[1]])
+            frame_points2.append([pt2[0], pt2[1]])
+        frame_points1 = np.array(frame_points1).T  # T cause shape (2, N)
+        frame_points2 = np.array(frame_points2).T  
+        points4D = cv.triangulatePoints(P1, P2, frame_points1, frame_points2)
         points3D = (points4D[:3] / points4D[3]).T
         self.past_matrices['E'] = None
         self.past_matrices['pose'] = None
         return points3D
     
-    def view_points(self, frame):
-        points = self.vision.find_matching_points(frame)
-        if points is not None:
-            print("extracted : ", len(points))
-        self.vision.view_interest_points(frame)
-        self.triangulation(points)
+    def match_frame(self, frame, visualize=False):
+        assert frame is not None
+        matches_pair = self.vision.find_matching_points(frame)
+        if visualize:
+            self.vision.view_interest_points(frame)
+        return matches_pair
