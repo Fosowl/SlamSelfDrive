@@ -18,9 +18,9 @@ height = int(video.get(cv.CAP_PROP_FRAME_HEIGHT))
 video_dim = (width, height)
 
 setting = Setup('Settings')
-line = Line(height, width, setting)
+#line = Line(height, width, setting)
+#detector = Yolo(width, height)
 slam = Slam(width, height)
-detector = Yolo(width, height)
 renderer = Renderer3D()
 # get K
 camera_matrix = slam.get_camera_intrinsics()
@@ -32,21 +32,18 @@ while video.isOpened():
         print("Can't receive frame (stream end?). Exiting ...")
         break
     frame = cv.resize(frame, video_dim, interpolation = cv.INTER_AREA)
-    #line.detect_lines(frame)
-    #line.overlay(frame)
-    #detector.detect_objects(frame)
-    #detector.draw_detection_box(frame)
     if renderer.is_freeze() == False:
         matches = slam.match_frame(frame, visualize=True)
+    if matches is None:
+        continue
     E, cam_pose = slam.get_camera_pose(matches)
-    x_speed, y_speed, z_speed = slam.get_speed()
     points3d = slam.triangulation(matches)
     if points3d is None:
         continue
-    #print("random points :", points3d[random.randint(0, len(points3d))])
-    renderer.ready()
-    #renderer.draw_plane()
-    renderer.render3dSpace(points3d, cam_pose, camera_matrix)
+    # TODO identical point problem solved but still not working but still not working
+    renderer.handle_camera()
+    renderer.draw_axes()
+    renderer.render3dSpace(points3d, slam.get_position())
     renderer.render(10)
     cv.imshow("Driving", frame)
 video.release()
